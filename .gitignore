@@ -39,4 +39,10 @@ tmp/
 temp/
 
 # SQLite database
-/data/*.db
+database/*.db
+*.db-journal
+
+# 上传的文件
+public/uploads/
+public/uploads/covers/
+public/uploads/contents/

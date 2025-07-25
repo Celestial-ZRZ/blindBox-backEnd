@@ -6,7 +6,7 @@ const saltRounds = 10;
 
 // 注册接口
 router.post('/register', async function(req, res) {
-  const { username, password } = req.body;
+  const { username, password, isMerchant } = req.body;
   
   // 输入验证
   if (!username || !password) {
@@ -37,8 +37,8 @@ router.post('/register', async function(req, res) {
       try {
         const hashedPassword = await bcrypt.hash(password, saltRounds);
         db.run(
-          'INSERT INTO users (username, password) VALUES (?, ?)',
-          [username, hashedPassword],
+          'INSERT INTO users (username, password, is_merchant) VALUES (?, ?, ?)',
+          [username, hashedPassword, isMerchant ? 1 : 0],
           function(err) {
             if (err) {
               console.error('创建用户错误:', err);
@@ -85,6 +85,7 @@ router.post('/login', async function(req, res) {
             user: { 
               username: user.username,
               id: user.id,
+              isMerchant: user.is_merchant === 1,
               createdAt: user.created_at 
             }
           });
