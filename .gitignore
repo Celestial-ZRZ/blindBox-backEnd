@@ -37,3 +37,6 @@ coverage/
 # 其他临时文件
 tmp/
 temp/
+
+# SQLite database
+/data/*.db
