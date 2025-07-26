@@ -606,4 +606,26 @@ router.post('/:id/status', function(req, res) {
   });
 });
 
+// 添加修改价格路由
+router.put('/:id/price', function(req, res) {
+  const boxId = req.params.id;
+  const { price } = req.body;
+
+  if (!price || price < 0) {
+    return res.status(400).json({ message: '请输入有效的价格' });
+  }
+
+  db.run(
+    'UPDATE blind_boxes SET price = ? WHERE id = ?',
+    [price, boxId],
+    function(err) {
+      if (err) {
+        console.error('修改价格失败:', err);
+        return res.status(500).json({ message: '服务器错误' });
+      }
+      res.json({ message: '价格修改成功' });
+    }
+  );
+});
+
 module.exports = router;

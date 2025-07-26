@@ -161,7 +161,9 @@ router.post('/:userId/draws/:drawId/ship', function(req, res) {
 
     // 获取当前记录
     db.get(
-      'SELECT blind_box_id, drawn_image, quantity as current_quantity FROM draws WHERE id = ? AND user_id = ?',
+      `SELECT blind_box_id, drawn_image, quantity as current_quantity 
+       FROM draws 
+       WHERE id = ? AND user_id = ? AND shipping_address IS NULL`,
       [drawId, userId],
       (err, draw) => {
         if (err) {
@@ -171,16 +173,16 @@ router.post('/:userId/draws/:drawId/ship', function(req, res) {
 
         if (!draw) {
           db.run('ROLLBACK');
-          return res.status(404).json({ message: '记录不存在' });
+          return res.status(404).json({ message: '记录不存在或已发货' });
         }
 
-        // 修改数量判断逻辑，确保使用Number类型比较
-        const currentQuantity = Number(draw.current_quantity);
-        const requestedQuantity = Number(quantity);
+        // 修改数量判断逻辑
+        const currentQuantity = parseInt(draw.current_quantity);
+        const requestedQuantity = parseInt(quantity);
 
-        if (requestedQuantity > currentQuantity) {
+        if (requestedQuantity < 1 || requestedQuantity > currentQuantity) {
           db.run('ROLLBACK');
-          return res.status(400).json({ message: '发货数量超过拥有数量' });
+          return res.status(400).json({ message: '发货数量无效' });
         }
 
         // 创建新的发货记录
@@ -205,7 +207,7 @@ router.post('/:userId/draws/:drawId/ship', function(req, res) {
                     return res.status(500).json({ message: '服务器错误' });
                   }
                   db.run('COMMIT');
-                  res.json({ message: '更新成功' });
+                  res.json({ message: '发货信息已更新' });
                 }
               );
             } else {
@@ -219,7 +221,7 @@ router.post('/:userId/draws/:drawId/ship', function(req, res) {
                     return res.status(500).json({ message: '服务器错误' });
                   }
                   db.run('COMMIT');
-                  res.json({ message: '更新成功' });
+                  res.json({ message: '发货信息已更新' });
                 }
               );
             }
