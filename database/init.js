@@ -66,6 +66,8 @@ db.serialize(() => {
       user_id INTEGER NOT NULL,
       blind_box_id INTEGER NOT NULL,
       drawn_image TEXT NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      shipping_address TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users (id),
       FOREIGN KEY (blind_box_id) REFERENCES blind_boxes (id)

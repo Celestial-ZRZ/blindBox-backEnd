@@ -273,4 +273,95 @@ router.post('/:id/comments', upload.single('image'), function(req, res) {
   );
 });
 
+// 添加抽取盲盒路由
+router.post('/:id/draw', function(req, res) {
+  const boxId = req.params.id;
+  const { userId, quantity } = req.body;
+
+  if (!userId || !quantity || quantity < 1) {
+    return res.status(400).json({ message: '无效的请求参数' });
+  }
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    // 检查用户盲盒数量
+    db.get(
+      'SELECT quantity FROM user_blind_boxes WHERE user_id = ? AND blind_box_id = ?',
+      [userId, boxId],
+      (err, userBox) => {
+        if (err) {
+          console.error('查询用户盲盒失败:', err);
+          db.run('ROLLBACK');
+          return res.status(500).json({ message: '服务器错误' });
+        }
+
+        if (!userBox || userBox.quantity < quantity) {
+          db.run('ROLLBACK');
+          return res.status(400).json({ message: '盲盒数量不足' });
+        }
+
+        // 获取盲盒内容
+        db.get('SELECT content_images FROM blind_boxes WHERE id = ?', [boxId], (err, box) => {
+          if (err) {
+            console.error('查询盲盒内容失败:', err);
+            db.run('ROLLBACK');
+            return res.status(500).json({ message: '服务器错误' });
+          }
+
+          const contentImages = JSON.parse(box.content_images);
+          const drawnImage = contentImages[Math.floor(Math.random() * contentImages.length)];
+
+          // 检查是否已有相同图片的抽取记录
+          db.get(
+            'SELECT id, quantity FROM draws WHERE user_id = ? AND blind_box_id = ? AND drawn_image = ?',
+            [userId, boxId, drawnImage],
+            (err, existingDraw) => {
+              if (err) {
+                console.error('查询抽取记录失败:', err);
+                db.run('ROLLBACK');
+                return res.status(500).json({ message: '服务器错误' });
+              }
+
+              const updateOrInsertDraw = existingDraw
+                ? 'UPDATE draws SET quantity = quantity + ? WHERE id = ?'
+                : 'INSERT INTO draws (user_id, blind_box_id, drawn_image, quantity) VALUES (?, ?, ?, ?)';
+              const drawParams = existingDraw
+                ? [quantity, existingDraw.id]
+                : [userId, boxId, drawnImage, quantity];
+
+              db.run(updateOrInsertDraw, drawParams, function(err) {
+                if (err) {
+                  console.error('更新抽取记录失败:', err);
+                  db.run('ROLLBACK');
+                  return res.status(500).json({ message: '服务器错误' });
+                }
+
+                // 更新用户盲盒数量
+                db.run(
+                  'UPDATE user_blind_boxes SET quantity = quantity - ? WHERE user_id = ? AND blind_box_id = ?',
+                  [quantity, userId, boxId],
+                  function(err) {
+                    if (err) {
+                      console.error('更新用户盲盒失败:', err);
+                      db.run('ROLLBACK');
+                      return res.status(500).json({ message: '服务器错误' });
+                    }
+
+                    db.run('COMMIT');
+                    res.json({ 
+                      message: '抽取成功',
+                      drawnImage 
+                    });
+                  }
+                );
+              });
+            }
+          );
+        });
+      }
+    );
+  });
+});
+
 module.exports = router;

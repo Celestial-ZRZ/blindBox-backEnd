@@ -140,4 +140,26 @@ router.get('/:id/draws', function(req, res) {
   });
 });
 
+// 添加收货地址更新路由
+router.post('/:userId/draws/:drawId/ship', function(req, res) {
+  const { userId, drawId } = req.params;
+  const { quantity, address } = req.body;
+
+  if (!address || !quantity) {
+    return res.status(400).json({ message: '请填写完整信息' });
+  }
+
+  db.run(
+    'UPDATE draws SET shipping_address = ?, quantity = ? WHERE id = ? AND user_id = ?',
+    [address, quantity, drawId, userId],
+    function(err) {
+      if (err) {
+        console.error('更新收货信息失败:', err);
+        return res.status(500).json({ message: '服务器错误' });
+      }
+      res.json({ message: '更新成功' });
+    }
+  );
+});
+
 module.exports = router;
