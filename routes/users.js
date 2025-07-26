@@ -121,16 +121,23 @@ router.get('/:id/blind-boxes', function(req, res) {
   });
 });
 
-// 获取用户的抽取记录
+// 获取用户的抽取记录(合并同种图片)
 router.get('/:id/draws', function(req, res) {
   const userId = req.params.id;
   
   db.all(`
-    SELECT d.*, b.name as blind_box_name
+    SELECT 
+      d.blind_box_id,
+      d.drawn_image,
+      SUM(d.quantity) as quantity,
+      MAX(d.created_at) as created_at,
+      b.name as blind_box_name,
+      MIN(d.id) as id
     FROM draws d
     JOIN blind_boxes b ON d.blind_box_id = b.id
-    WHERE d.user_id = ?
-    ORDER BY d.created_at DESC
+    WHERE d.user_id = ? AND d.shipping_address IS NULL
+    GROUP BY d.blind_box_id, d.drawn_image
+    ORDER BY created_at DESC
   `, [userId], (err, draws) => {
     if (err) {
       console.error('查询抽取记录失败:', err);
@@ -140,26 +147,87 @@ router.get('/:id/draws', function(req, res) {
   });
 });
 
-// 添加收货地址更新路由
+// 修改收货地址更新路由
 router.post('/:userId/draws/:drawId/ship', function(req, res) {
   const { userId, drawId } = req.params;
   const { quantity, address } = req.body;
 
-  if (!address || !quantity) {
+  if (!address || !quantity || quantity < 1) {
     return res.status(400).json({ message: '请填写完整信息' });
   }
 
-  db.run(
-    'UPDATE draws SET shipping_address = ?, quantity = ? WHERE id = ? AND user_id = ?',
-    [address, quantity, drawId, userId],
-    function(err) {
-      if (err) {
-        console.error('更新收货信息失败:', err);
-        return res.status(500).json({ message: '服务器错误' });
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    // 获取当前记录
+    db.get(
+      'SELECT blind_box_id, drawn_image, quantity as current_quantity FROM draws WHERE id = ? AND user_id = ?',
+      [drawId, userId],
+      (err, draw) => {
+        if (err) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ message: '服务器错误' });
+        }
+
+        if (!draw) {
+          db.run('ROLLBACK');
+          return res.status(404).json({ message: '记录不存在' });
+        }
+
+        // 修改数量判断逻辑，确保使用Number类型比较
+        const currentQuantity = Number(draw.current_quantity);
+        const requestedQuantity = Number(quantity);
+
+        if (requestedQuantity > currentQuantity) {
+          db.run('ROLLBACK');
+          return res.status(400).json({ message: '发货数量超过拥有数量' });
+        }
+
+        // 创建新的发货记录
+        db.run(
+          'INSERT INTO draws (user_id, blind_box_id, drawn_image, quantity, shipping_address) VALUES (?, ?, ?, ?, ?)',
+          [userId, draw.blind_box_id, draw.drawn_image, requestedQuantity, address],
+          function(err) {
+            if (err) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ message: '服务器错误' });
+            }
+
+            // 更新原记录数量
+            const newQuantity = currentQuantity - requestedQuantity;
+            if (newQuantity > 0) {
+              db.run(
+                'UPDATE draws SET quantity = ? WHERE id = ?',
+                [newQuantity, drawId],
+                function(err) {
+                  if (err) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ message: '服务器错误' });
+                  }
+                  db.run('COMMIT');
+                  res.json({ message: '更新成功' });
+                }
+              );
+            } else {
+              // 删除原记录
+              db.run(
+                'DELETE FROM draws WHERE id = ?',
+                [drawId],
+                function(err) {
+                  if (err) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ message: '服务器错误' });
+                  }
+                  db.run('COMMIT');
+                  res.json({ message: '更新成功' });
+                }
+              );
+            }
+          }
+        );
       }
-      res.json({ message: '更新成功' });
-    }
-  );
+    );
+  });
 });
 
 module.exports = router;

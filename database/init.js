@@ -41,6 +41,7 @@ db.serialize(() => {
       price DECIMAL(10,2) NOT NULL,
       total_stock INTEGER NOT NULL,
       order_count INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'on_sale', -- 'on_sale' 或 'off_sale'
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (merchant_id) REFERENCES users (id)
     )
@@ -68,6 +69,7 @@ db.serialize(() => {
       drawn_image TEXT NOT NULL,
       quantity INTEGER NOT NULL DEFAULT 1,
       shipping_address TEXT,
+      is_shipped BOOLEAN DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users (id),
       FOREIGN KEY (blind_box_id) REFERENCES blind_boxes (id)
