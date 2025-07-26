@@ -150,10 +150,10 @@ router.get('/:id/draws', function(req, res) {
 // 修改收货地址更新路由
 router.post('/:userId/draws/:drawId/ship', function(req, res) {
   const { userId, drawId } = req.params;
-  const { quantity, address } = req.body;
+  const { address } = req.body;
 
-  if (!address || !quantity || quantity < 1) {
-    return res.status(400).json({ message: '请填写完整信息' });
+  if (!address) {
+    return res.status(400).json({ message: '请填写收货地址' });
   }
 
   db.serialize(() => {
@@ -176,19 +176,10 @@ router.post('/:userId/draws/:drawId/ship', function(req, res) {
           return res.status(404).json({ message: '记录不存在或已发货' });
         }
 
-        // 修改数量判断逻辑
-        const currentQuantity = parseInt(draw.current_quantity);
-        const requestedQuantity = parseInt(quantity);
-
-        if (requestedQuantity < 1 || requestedQuantity > currentQuantity) {
-          db.run('ROLLBACK');
-          return res.status(400).json({ message: '发货数量无效' });
-        }
-
-        // 创建新的发货记录
+        // 创建新的发货记录（固定数量为1）
         db.run(
-          'INSERT INTO draws (user_id, blind_box_id, drawn_image, quantity, shipping_address) VALUES (?, ?, ?, ?, ?)',
-          [userId, draw.blind_box_id, draw.drawn_image, requestedQuantity, address],
+          'INSERT INTO draws (user_id, blind_box_id, drawn_image, quantity, shipping_address) VALUES (?, ?, ?, 1, ?)',
+          [userId, draw.blind_box_id, draw.drawn_image, address],
           function(err) {
             if (err) {
               db.run('ROLLBACK');
@@ -196,7 +187,7 @@ router.post('/:userId/draws/:drawId/ship', function(req, res) {
             }
 
             // 更新原记录数量
-            const newQuantity = currentQuantity - requestedQuantity;
+            const newQuantity = draw.current_quantity - 1;
             if (newQuantity > 0) {
               db.run(
                 'UPDATE draws SET quantity = ? WHERE id = ?',
