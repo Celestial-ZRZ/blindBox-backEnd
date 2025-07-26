@@ -127,7 +127,92 @@ router.get('/:id', function(req, res) {
   });
 });
 
-// 修改获取评论的路由
+// 修改购买盲盒的路由
+router.post('/:id/buy', function(req, res) {
+  const boxId = req.params.id;
+  const { userId, quantity } = req.body;
+
+  if (!userId || !quantity || quantity < 1) {
+    return res.status(400).json({ message: '无效的请求参数' });
+  }
+
+  // 开始事务
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    // 检查库存
+    db.get(
+      'SELECT total_stock, order_count, price FROM blind_boxes WHERE id = ?',
+      [boxId],
+      (err, box) => {
+        if (err) {
+          console.error('查询库存失败:', err);
+          db.run('ROLLBACK');
+          return res.status(500).json({ message: '服务器错误' });
+        }
+
+        if (!box) {
+          db.run('ROLLBACK');
+          return res.status(404).json({ message: '盲盒不存在' });
+        }
+
+        const remainingStock = parseInt(box.total_stock) - (parseInt(box.order_count) || 0);
+        if (remainingStock < quantity) {
+          db.run('ROLLBACK');
+          return res.status(400).json({ message: '库存不足' });
+        }
+
+        // 检查用户是否已有该盲盒的记录
+        db.get(
+          'SELECT quantity FROM user_blind_boxes WHERE user_id = ? AND blind_box_id = ?',
+          [userId, boxId],
+          (err, userBox) => {
+            if (err) {
+              console.error('查询用户盲盒失败:', err);
+              db.run('ROLLBACK');
+              return res.status(500).json({ message: '服务器错误' });
+            }
+
+            const updateQuery = userBox
+              ? 'UPDATE user_blind_boxes SET quantity = quantity + ? WHERE user_id = ? AND blind_box_id = ?'
+              : 'INSERT INTO user_blind_boxes (quantity, user_id, blind_box_id) VALUES (?, ?, ?)';
+
+            // 更新用户的盲盒数量
+            db.run(updateQuery, [quantity, userId, boxId], function(err) {
+              if (err) {
+                console.error('更新用户盲盒失败:', err);
+                db.run('ROLLBACK');
+                return res.status(500).json({ message: '服务器错误' });
+              }
+
+              // 更新总库存
+              db.run(
+                'UPDATE blind_boxes SET order_count = order_count + ? WHERE id = ?',
+                [quantity, boxId],
+                function(err) {
+                  if (err) {
+                    console.error('更新库存失败:', err);
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ message: '服务器错误' });
+                  }
+
+                  db.run('COMMIT');
+                  res.json({ 
+                    message: '购买成功',
+                    quantity: quantity,
+                    totalPrice: box.price * quantity
+                  });
+                }
+              );
+            });
+          }
+        );
+      }
+    );
+  });
+});
+
+// 修改评论查询路由
 router.get('/:id/comments', function(req, res) {
   const boxId = req.params.id;
   
@@ -186,164 +271,6 @@ router.post('/:id/comments', upload.single('image'), function(req, res) {
       );
     }
   );
-});
-
-// 修改购买盲盒的路由
-router.post('/:id/buy', function(req, res) {
-  const boxId = req.params.id;
-  const { userId, quantity } = req.body;
-
-  if (!userId || !quantity || quantity < 1) {
-    return res.status(400).json({ message: '无效的请求参数' });
-  }
-
-  // 开始事务
-  db.serialize(() => {
-    db.run('BEGIN TRANSACTION');
-
-    // 检查库存
-    db.get(
-      'SELECT total_stock, order_count, price FROM blind_boxes WHERE id = ?',
-      [boxId],
-      (err, box) => {
-        if (err) {
-          console.error('查询库存失败:', err);
-          db.run('ROLLBACK');
-          return res.status(500).json({ message: '服务器错误' });
-        }
-
-        if (!box) {
-          db.run('ROLLBACK');
-          return res.status(404).json({ message: '盲盒不存在' });
-        }
-
-        const remainingStock = parseInt(box.total_stock) - (parseInt(box.order_count) || 0);
-        if (remainingStock < quantity) {
-          db.run('ROLLBACK');
-          return res.status(400).json({ message: '库存不足' });
-        }
-
-        // 更新库存
-        db.run(
-          'UPDATE blind_boxes SET order_count = order_count + ? WHERE id = ?',
-          [quantity, boxId],
-          function(err) {
-            if (err) {
-              console.error('更新库存失败:', err);
-              db.run('ROLLBACK');
-              return res.status(500).json({ message: '服务器错误' });
-            }
-
-            // 检查是否已有记录
-            db.get(
-              'SELECT quantity FROM user_blind_boxes WHERE user_id = ? AND blind_box_id = ?',
-              [userId, boxId],
-              (err, userBox) => {
-                if (err) {
-                  console.error('查询用户盲盒失败:', err);
-                  db.run('ROLLBACK');
-                  return res.status(500).json({ message: '服务器错误' });
-                }
-
-                const query = userBox
-                  ? 'UPDATE user_blind_boxes SET quantity = quantity + ? WHERE user_id = ? AND blind_box_id = ?'
-                  : 'INSERT INTO user_blind_boxes (quantity, user_id, blind_box_id) VALUES (?, ?, ?)';
-
-                db.run(query, [quantity, userId, boxId], function(err) {
-                  if (err) {
-                    console.error('更新用户盲盒失败:', err);
-                    db.run('ROLLBACK');
-                    return res.status(500).json({ message: '服务器错误' });
-                  }
-
-                  db.run('COMMIT');
-                  res.json({ 
-                    message: '购买成功',
-                    quantity: quantity,
-                    totalPrice: box.price * quantity
-                  });
-                });
-              }
-            );
-          }
-        );
-      }
-    );
-  });
-});
-
-// 打开盲盒
-router.post('/:id/draw', async function(req, res) {
-  const boxId = req.params.id;
-  const { userId, quantity } = req.body;
-
-  db.serialize(() => {
-    db.run('BEGIN TRANSACTION');
-
-    try {
-      // 检查用户是否有足够的盲盒
-      db.get(
-        'SELECT quantity FROM user_blind_boxes WHERE user_id = ? AND blind_box_id = ?',
-        [userId, boxId],
-        async function(err, row) {
-          if (err) {
-            db.run('ROLLBACK');
-            return res.status(500).json({ message: '服务器错误' });
-          }
-
-          if (!row || row.quantity < quantity) {
-            db.run('ROLLBACK');
-            return res.status(400).json({ message: '盲盒数量不足' });
-          }
-
-          // 获取盲盒内容
-          db.get('SELECT content_images FROM blind_boxes WHERE id = ?', [boxId], async function(err, box) {
-            if (err) {
-              db.run('ROLLBACK');
-              return res.status(500).json({ message: '服务器错误' });
-            }
-
-            const contentImages = JSON.parse(box.content_images);
-            const drawnImage = contentImages[Math.floor(Math.random() * contentImages.length)];
-
-            // 记录抽取结果
-            db.run(
-              'INSERT INTO draws (user_id, blind_box_id, drawn_image) VALUES (?, ?, ?)',
-              [userId, boxId, drawnImage],
-              function(err) {
-                if (err) {
-                  db.run('ROLLBACK');
-                  return res.status(500).json({ message: '服务器错误' });
-                }
-
-                // 更新用户盲盒数量
-                db.run(
-                  'UPDATE user_blind_boxes SET quantity = quantity - ? WHERE user_id = ? AND blind_box_id = ?',
-                  [quantity, userId, boxId],
-                  function(err) {
-                    if (err) {
-                      db.run('ROLLBACK');
-                      return res.status(500).json({ message: '服务器错误' });
-                    }
-
-                    db.run('COMMIT');
-                    res.json({ 
-                      message: '抽取成功',
-                      drawnImage: drawnImage
-                    });
-                  }
-                );
-              }
-            );
-          });
-        }
-      );
-    } catch (err) {
-      console.error('打开盲盒失败:', err);
-      db.run('ROLLBACK');
-      res.status(500).json({ message: '服务器错误' });
-    }
-  });
 });
 
 module.exports = router;

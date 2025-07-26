@@ -103,4 +103,41 @@ router.post('/login', async function(req, res) {
   }
 });
 
+// 获取用户的盲盒
+router.get('/:id/blind-boxes', function(req, res) {
+  const userId = req.params.id;
+  
+  db.all(`
+    SELECT ub.*, b.name, b.cover_image, b.content_images, b.price 
+    FROM user_blind_boxes ub
+    JOIN blind_boxes b ON ub.blind_box_id = b.id
+    WHERE ub.user_id = ?
+  `, [userId], (err, boxes) => {
+    if (err) {
+      console.error('查询用户盲盒失败:', err);
+      return res.status(500).json({ message: '服务器错误' });
+    }
+    res.json(boxes);
+  });
+});
+
+// 获取用户的抽取记录
+router.get('/:id/draws', function(req, res) {
+  const userId = req.params.id;
+  
+  db.all(`
+    SELECT d.*, b.name as blind_box_name
+    FROM draws d
+    JOIN blind_boxes b ON d.blind_box_id = b.id
+    WHERE d.user_id = ?
+    ORDER BY d.created_at DESC
+  `, [userId], (err, draws) => {
+    if (err) {
+      console.error('查询抽取记录失败:', err);
+      return res.status(500).json({ message: '服务器错误' });
+    }
+    res.json(draws);
+  });
+});
+
 module.exports = router;
